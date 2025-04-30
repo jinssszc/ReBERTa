@@ -1,0 +1,36 @@
+cff-version: 1.2.0
+message: "如果您使用此软件，请按如下方式引用它"
+title: "ReBerta: 基于窗口递归机制的长文本分类模型"
+abstract: "ReBerta是一个创新的长文本分类模型，扩展了传统RoBERTa的512 token限制。它采用双层编码器结构、旋转位置编码（RoPE）和窗口间门控信息传递机制，能够处理超长文本，适用于学术论文分类和法律文档分析等领域。"
+authors:
+  - family-names: "ReBerta"
+    given-names: "Authors"
+    affiliation: "Your Institution"
+identifiers:
+  - type: url
+    value: "https://github.com/username/reberta"
+repository-code: "https://github.com/username/reberta"
+license: MIT
+version: 0.1.0
+date-released: 2025-04-09
+keywords:
+  - "long text classification"
+  - "transformer models"
+  - "natural language processing"
+  - "RoBERTa"
+  - "recursive models"
+references:
+  - type: article
+    authors:
+      - family-names: "Liu"
+        given-names: "Yinhan"
+    title: "RoBERTa: A Robustly Optimized BERT Pretraining Approach"
+    year: 2019
+    url: "https://arxiv.org/abs/1907.11692"
+  - type: article
+    authors:
+      - family-names: "Su"
+        given-names: "Jianlin"
+    title: "RoFormer: Enhanced Transformer with Rotary Position Embedding"
+    year: 2021
+    url: "https://arxiv.org/abs/2104.09864"

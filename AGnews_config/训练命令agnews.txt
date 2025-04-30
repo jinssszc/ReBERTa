@@ -1,0 +1,24 @@
+agnews
+
+input：text
+label：label
+num：4
+
+python main.py --mode train 
+
+参数设置（在config里改）
+--batch_size 64 --epochs 50 --learning_rate 1e-5 --window_size 258 --num_repeats 2 --max_windows 16 --gradient_accumulation_steps 1 --mixed_precision --mixed_precision_type bf16 --scheduler_type cosine --lr_final_factor 0.1 --dropout 0.3 --early_stopping_patience 3 --num_warmup_steps 1000
+
+
+
+python evaluate.py \
+  --model_path models/saved/model.pt \
+  --batch_size 64 \
+  --window_size 258 \  
+  --num_repeats 2 \
+  --max_windows 16 \
+  --dropout 0.3 \
+  --mixed_precision True \
+  --mixed_precision_type bf16 \
+  --test_path data/test.jsonl \
+  --output_dir results_eval

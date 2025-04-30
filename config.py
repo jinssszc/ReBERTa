@@ -1,0 +1,105 @@
+"""
+配置参数模块 - 集中管理所有超参数
+"""
+import os
+# 统一管理的超参数
+config = {
+    # 数据根目录（新增，供main.py等模块默认使用）
+    "data_dir": "data",  # 默认数据目录，可根据实际数据集修改
+
+    # 基础路径配置
+    "base_dir": os.path.dirname(os.path.abspath(__file__)),
+    
+    # 数据路径配置
+    "data_paths": {
+        "train": os.path.join("data", "train"),        # 训练数据路径
+        "val": os.path.join("data", "validation"),     # 验证数据路径
+        "test": os.path.join("data", "test")           # 测试数据路径
+    },
+    
+    # 输出目录配置
+    "cache_dir": "cache",  # 缓存目录，新增
+    "output_dir": "models/saved",  # 输出目录，新增
+
+    # 模型配置
+    "pretrained_path": "models/pretrained",  # 预训练模型路径
+    "model_type": "reberta",            # 模型类型
+    "model_name": "reberta",  # 模型名称（新增，供评估脚本使用）
+    "max_len": 4096,                     # 最大序列长度
+    "window_size": 258,                 # 滑动窗口大小
+    "num_repeats": 3,                   # 重复次数
+    "max_windows": 16,                   # 最大窗口数
+    "num_classes": None,                # 类别数量（将由数据集自动设置）
+    "dropout": 0.1,                     # Dropout率
+    "max_grad_norm": 1.0,  # 梯度裁剪范数，新增,未启用
+    "hidden_dropout_prob": 0.1,  # 隐藏层dropout率，新增，未启用
+    "attention_dropout_prob": 0.1,  # 注意力dropout率，新增，未启用
+    
+    # 设备配置
+    "device": "cuda",  # 默认设备，新增
+
+    # 训练配置
+    "batch_size": 64,                    # 批次大小
+    "epochs": 20,                       # 训练轮数
+    "learning_rate": 1e-5,              # 学习率
+    "weight_decay": 0.01,               # 权重衰减
+    "early_stopping_patience": 5,        # 早停耐心值
+    "gradient_accumulation_steps": 2,    # 梯度累积步数
+    
+    # 学习率调度器配置
+    "scheduler_type": "cosine",         # 调度器类型：'linear', 'cosine', 'step',
+    "num_warmup_steps": 200,              # 预热步数
+    "num_training_steps": None,         # 总训练步数（将由epoch和数据集大小自动计算）
+    "lr_final_factor": 0.01,            # 最终学习率因子（相对于初始学习率）
+    "lr_step_size": 2,                  # 学习率步长（用于step调度器）
+    "lr_gamma": 0.5,                    # 学习率衰减率（用于step调度器）
+    
+    # 高级训练特性
+    "mixed_precision": True,           # 是否使用混合精度训练
+    "mixed_precision_type": "bf16",     # 混合精度类型：'fp16' 或 'bf16'
+    
+    # 优化器配置
+    "optimizer": {
+        "type": "adamw",                # 优化器类型：'adamw', 'adam', 'sgd'
+        "beta1": 0.9,                   # Adam/AdamW的beta1参数
+        "beta2": 0.999,                 # Adam/AdamW的beta2参数
+        "eps": 1e-8,                    # Adam/AdamW的epsilon参数
+        "momentum": 0.9,                # SGD的动量参数（仅在type='sgd'时使用）
+    },
+    
+    # 正则化配置
+    "regularization": {
+        "label_smoothing": 0.0,         # 标签平滑系数
+        "gradient_clip_val": 1.0,      # 梯度裁剪值
+        "weight_decay": 0.01,           # L2正则化系数
+    },
+    
+    # 数据增强配置
+    "augmentation": {
+        "enabled": False,               # 是否启用数据增强
+        "random_mask_prob": 0.15,       # 随机掩码概率
+        "max_mask_tokens": 20,          # 最大掩码token数
+        "whole_word_mask": True,        # 是否使用全词掩码
+    },
+    
+    # 评估配置
+    "metrics": ['accuracy', 'precision', 'recall', 'f1'],  # 评估指标
+    "save_predictions": True,           # 是否保存预测结果
+    "confusion_matrix": True,           # 是否生成混淆矩阵
+    "classification_report": True,      # 是否生成分类报告
+    
+    # 日志配置
+    "log_level": "INFO",                    # 日志级别
+    "log_format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
+    "save_logs": True,                  # 是否保存日志到文件
+    "log_steps": 20,                   # 每多少步记录一次训练状态
+    
+    # 资源配置
+    "num_workers": 24,                   # 数据加载器的工作进程数
+    "pin_memory": True,                 # 是否将数据加载到CUDA固定内存
+    "gpu_memory_fraction": 0.98,         # GPU显存使用比例
+    
+    # 模型保存路径
+    "model_save_path": "models/saved/reberta_single_epoch.pth",  # 模型保存路径
+    "log_dir": "logs",          # 日志目录
+}

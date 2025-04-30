@@ -1,0 +1,116 @@
+2025-04-09 18:32:27,131 - utils - INFO - === ReBerta 日志系统初始化 ===
+2025-04-09 18:32:27,131 - utils - INFO - 日志将保存到: logs\epoch_training.log
+2025-04-09 18:32:27,131 - __main__ - INFO - 开始基于epoch的训练...
+2025-04-09 18:32:27,144 - utils - INFO - 可用GPU数量: 1, 设备名称: NVIDIA GeForce RTX 4070 Ti
+2025-04-09 18:32:27,200 - utils - INFO - 成功初始化CUDA设备: cuda
+2025-04-09 18:32:27,201 - utils - INFO - GPU使用情况 - 初始化后: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 0.00MB, 已保留: 2.00MB
+2025-04-09 18:32:27,201 - utils - INFO - 最终使用设备: cuda
+2025-04-09 18:32:27,201 - data_utils.dataset - INFO - 加载训练数据集...
+2025-04-09 18:32:27,201 - data_utils.dataset - INFO - 正在加载数据集: D:\Users\Jin\Desktop\FYP\Model\FYPmodel Reberta\data/train
+2025-04-09 18:32:30,976 - data_utils.dataset - WARNING - 移除了1条abstract为空的样本
+2025-04-09 18:32:31,191 - data_utils.dataset - INFO - 初始化标签编码器...
+2025-04-09 18:32:31,419 - data_utils.dataset - INFO - 加载分词器: models/pretrained
+2025-04-09 18:32:31,517 - data_utils.dataset - INFO - 数据集初始化完成，样本数: 2069064, 类别数: 30
+2025-04-09 18:32:31,517 - data_utils.dataset - INFO - 加载验证数据集...
+2025-04-09 18:32:31,517 - data_utils.dataset - INFO - 正在加载数据集: D:\Users\Jin\Desktop\FYP\Model\FYPmodel Reberta\data/evaluation
+2025-04-09 18:32:31,961 - data_utils.dataset - INFO - 初始化标签编码器...
+2025-04-09 18:32:31,990 - data_utils.dataset - INFO - 加载分词器: models/pretrained
+2025-04-09 18:32:32,034 - data_utils.dataset - INFO - 数据集初始化完成，样本数: 258678, 类别数: 30
+2025-04-09 18:32:32,034 - data_utils.dataset - INFO - 创建批次采样器...
+2025-04-09 18:32:46,549 - data_utils.dataset - INFO - 批次采样器初始化完成，批次数: 1
+2025-04-09 18:32:48,351 - data_utils.dataset - INFO - 批次采样器初始化完成，批次数: 1
+2025-04-09 18:32:48,351 - data_utils.dataset - INFO - 创建数据加载器...
+2025-04-09 18:32:48,351 - data_utils.dataset - INFO - 数据加载器准备完成，类别数: 30
+2025-04-09 18:32:48,351 - utils - INFO - 开始执行 create_model...
+2025-04-09 18:32:48,351 - utils - INFO - 使用默认'roberta-base'模型
+2025-04-09 18:32:48,352 - utils - INFO - 创建模型: num_classes=30, window_size=512, num_repeats=2, max_windows=16
+2025-04-09 18:32:50,064 - utils - INFO - 模型参数总数: 249,384,736, 可训练参数: 249,318,944
+2025-04-09 18:32:50,064 - utils - INFO - 将模型移动到设备: cuda
+2025-04-09 18:32:50,340 - utils - INFO - GPU使用情况 - 模型加载后: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 953.81MB, 已保留: 1038.00MB
+2025-04-09 18:32:50,340 - utils - INFO - 模型创建成功
+2025-04-09 18:32:50,340 - utils - INFO - create_model 执行完成，耗时: 1.99 秒
+2025-04-09 18:32:50,340 - utils - INFO - 创建 AdamW 优化器: learning_rate=2e-05, weight_decay=0.01
+2025-04-09 18:32:51,012 - utils - INFO - 创建线性预热调度器: warmup_steps=1, training_steps=10
+2025-04-09 18:32:51,012 - __main__ - INFO - 训练配置: batch_size=16, epochs=10, learning_rate=2e-05
+2025-04-09 18:32:51,012 - __main__ - INFO - 模型配置: window_size=512, num_repeats=2, max_windows=16
+2025-04-09 18:32:51,012 - utils - INFO - GPU使用情况 - 训练开始前: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 953.81MB, 已保留: 1038.00MB
+2025-04-09 18:32:51,012 - __main__ - INFO - 开始执行 train_model...
+2025-04-09 18:32:51,012 - __main__ - INFO - Starting training...
+2025-04-09 18:32:51,188 - utils - INFO - GPU内存清理完成 - 已分配: 953.81MB, 已保留: 1038.00MB
+2025-04-09 18:32:51,362 - utils - INFO - GPU使用情况 - Epoch 1, Batch 0: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 998.72MB, 已保留: 1174.00MB
+2025-04-09 18:32:51,362 - __main__ - INFO - Validating...
+2025-04-09 18:32:51,362 - evaluation_utils - INFO - 开始第 1 轮验证...
+2025-04-09 18:32:51,362 - evaluation_utils - INFO - 开始模型评估...
+2025-04-09 18:32:51,363 - utils - INFO - GPU使用情况 - 评估开始前: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 998.72MB, 已保留: 1174.00MB
+2025-04-09 18:32:51,401 - evaluation_utils - INFO - 评估结果:
+2025-04-09 18:32:51,401 - evaluation_utils - INFO - Loss: 10.0000
+2025-04-09 18:32:51,402 - evaluation_utils - INFO - Accuracy: 0.0000
+2025-04-09 18:32:51,402 - evaluation_utils - INFO - Precision: 0.0000
+2025-04-09 18:32:51,402 - evaluation_utils - INFO - Recall: 0.0000
+2025-04-09 18:32:51,402 - evaluation_utils - INFO - F1 Score: 0.0000
+2025-04-09 18:32:51,402 - utils - INFO - GPU使用情况 - 评估结束后: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 998.72MB, 已保留: 1198.00MB
+2025-04-09 18:32:51,530 - utils - INFO - GPU内存清理完成 - 已分配: 998.72MB, 已保留: 1078.00MB
+2025-04-09 18:32:51,530 - evaluation_utils - INFO - 第 1 轮验证完成
+2025-04-09 18:32:51,655 - utils - INFO - GPU内存清理完成 - 已分配: 998.72MB, 已保留: 1078.00MB
+2025-04-09 18:32:51,655 - __main__ - INFO - Epoch 1/10 - Train Loss: 10.0000, Acc: 0.0000 - Val Loss: 10.0000, Acc: 0.0000
+2025-04-09 18:32:51,655 - __main__ - INFO - Saving model to models/saved/reberta_single_epoch.pth (validation loss improved)
+2025-04-09 18:32:52,551 - __main__ - INFO - 模型成功保存到 models/saved/reberta_single_epoch.pth
+2025-04-09 18:32:52,690 - utils - INFO - GPU内存清理完成 - 已分配: 998.72MB, 已保留: 1078.00MB
+2025-04-09 18:32:52,724 - utils - INFO - GPU使用情况 - Epoch 2, Batch 0: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 1035.37MB, 已保留: 1210.00MB
+2025-04-09 18:32:52,724 - __main__ - INFO - Validating...
+2025-04-09 18:32:52,724 - evaluation_utils - INFO - 开始第 2 轮验证...
+2025-04-09 18:32:52,724 - evaluation_utils - INFO - 开始模型评估...
+2025-04-09 18:32:52,724 - utils - INFO - GPU使用情况 - 评估开始前: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 1035.37MB, 已保留: 1210.00MB
+2025-04-09 18:32:52,767 - evaluation_utils - INFO - 评估结果:
+2025-04-09 18:32:52,767 - evaluation_utils - INFO - Loss: 10.0000
+2025-04-09 18:32:52,767 - evaluation_utils - INFO - Accuracy: 0.0000
+2025-04-09 18:32:52,767 - evaluation_utils - INFO - Precision: 0.0000
+2025-04-09 18:32:52,768 - evaluation_utils - INFO - Recall: 0.0000
+2025-04-09 18:32:52,768 - evaluation_utils - INFO - F1 Score: 0.0000
+2025-04-09 18:32:52,768 - utils - INFO - GPU使用情况 - 评估结束后: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 1035.37MB, 已保留: 1234.00MB
+2025-04-09 18:32:52,904 - utils - INFO - GPU内存清理完成 - 已分配: 1035.37MB, 已保留: 1116.00MB
+2025-04-09 18:32:52,904 - evaluation_utils - INFO - 第 2 轮验证完成
+2025-04-09 18:32:53,030 - utils - INFO - GPU内存清理完成 - 已分配: 1035.37MB, 已保留: 1116.00MB
+2025-04-09 18:32:53,030 - __main__ - INFO - Epoch 2/10 - Train Loss: 10.0000, Acc: 0.0000 - Val Loss: 10.0000, Acc: 0.0000
+2025-04-09 18:32:53,167 - utils - INFO - GPU内存清理完成 - 已分配: 1035.37MB, 已保留: 1116.00MB
+2025-04-09 18:32:53,202 - utils - INFO - GPU使用情况 - Epoch 3, Batch 0: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 1072.03MB, 已保留: 1248.00MB
+2025-04-09 18:32:53,203 - __main__ - INFO - Validating...
+2025-04-09 18:32:53,203 - evaluation_utils - INFO - 开始第 3 轮验证...
+2025-04-09 18:32:53,203 - evaluation_utils - INFO - 开始模型评估...
+2025-04-09 18:32:53,203 - utils - INFO - GPU使用情况 - 评估开始前: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 1072.03MB, 已保留: 1248.00MB
+2025-04-09 18:32:53,246 - evaluation_utils - INFO - 评估结果:
+2025-04-09 18:32:53,246 - evaluation_utils - INFO - Loss: 10.0000
+2025-04-09 18:32:53,246 - evaluation_utils - INFO - Accuracy: 0.0000
+2025-04-09 18:32:53,246 - evaluation_utils - INFO - Precision: 0.0000
+2025-04-09 18:32:53,246 - evaluation_utils - INFO - Recall: 0.0000
+2025-04-09 18:32:53,246 - evaluation_utils - INFO - F1 Score: 0.0000
+2025-04-09 18:32:53,247 - utils - INFO - GPU使用情况 - 评估结束后: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 1072.03MB, 已保留: 1272.00MB
+2025-04-09 18:32:53,376 - utils - INFO - GPU内存清理完成 - 已分配: 1072.03MB, 已保留: 1152.00MB
+2025-04-09 18:32:53,377 - evaluation_utils - INFO - 第 3 轮验证完成
+2025-04-09 18:32:53,503 - utils - INFO - GPU内存清理完成 - 已分配: 1072.03MB, 已保留: 1152.00MB
+2025-04-09 18:32:53,503 - __main__ - INFO - Epoch 3/10 - Train Loss: 10.0000, Acc: 0.0000 - Val Loss: 10.0000, Acc: 0.0000
+2025-04-09 18:32:53,637 - utils - INFO - GPU内存清理完成 - 已分配: 1072.03MB, 已保留: 1152.00MB
+2025-04-09 18:32:53,668 - utils - INFO - GPU使用情况 - Epoch 4, Batch 0: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 1108.68MB, 已保留: 1284.00MB
+2025-04-09 18:32:53,670 - __main__ - INFO - Validating...
+2025-04-09 18:32:53,670 - evaluation_utils - INFO - 开始第 4 轮验证...
+2025-04-09 18:32:53,670 - evaluation_utils - INFO - 开始模型评估...
+2025-04-09 18:32:53,670 - utils - INFO - GPU使用情况 - 评估开始前: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 1108.68MB, 已保留: 1284.00MB
+2025-04-09 18:32:53,712 - evaluation_utils - INFO - 评估结果:
+2025-04-09 18:32:53,712 - evaluation_utils - INFO - Loss: 10.0000
+2025-04-09 18:32:53,712 - evaluation_utils - INFO - Accuracy: 0.0625
+2025-04-09 18:32:53,712 - evaluation_utils - INFO - Precision: 0.1250
+2025-04-09 18:32:53,712 - evaluation_utils - INFO - Recall: 0.0625
+2025-04-09 18:32:53,712 - evaluation_utils - INFO - F1 Score: 0.0833
+2025-04-09 18:32:53,713 - utils - INFO - GPU使用情况 - 评估结束后: 设备: NVIDIA GeForce RTX 4070 Ti, 已分配: 1108.68MB, 已保留: 1308.00MB
+2025-04-09 18:32:53,843 - utils - INFO - GPU内存清理完成 - 已分配: 1108.68MB, 已保留: 1190.00MB
+2025-04-09 18:32:53,843 - evaluation_utils - INFO - 第 4 轮验证完成
+2025-04-09 18:32:53,971 - utils - INFO - GPU内存清理完成 - 已分配: 1108.68MB, 已保留: 1190.00MB
+2025-04-09 18:32:53,972 - __main__ - INFO - Epoch 4/10 - Train Loss: 10.0000, Acc: 0.0625 - Val Loss: 10.0000, Acc: 0.0625
+2025-04-09 18:32:53,972 - __main__ - INFO - Early stopping at epoch 4 (no improvement for 3 epochs)
+2025-04-09 18:32:54,217 - visualization_utils - INFO - 学习曲线已保存至 logs\loss_curve.png
+2025-04-09 18:32:54,298 - visualization_utils - INFO - 学习曲线已保存至 logs\accuracy_curve.png
+2025-04-09 18:32:54,298 - __main__ - INFO - Loss曲线保存成功
+2025-04-09 18:32:54,298 - __main__ - INFO - Accuracy曲线保存成功
+2025-04-09 18:32:54,430 - utils - INFO - GPU内存清理完成 - 已分配: 1108.68MB, 已保留: 1190.00MB
+2025-04-09 18:32:54,430 - __main__ - INFO - Training complete!
+2025-04-09 18:32:54,430 - __main__ - INFO - train_model 执行完成，耗时: 3.42 秒

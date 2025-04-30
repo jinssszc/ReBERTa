@@ -1,0 +1,732 @@
+"""
+训练模块 - 实现基于RoBERTa的长文本分类模型训练逻辑
+"""
+
+import os
+import torch
+from tqdm import tqdm
+import numpy as np
+import logging
+import traceback
+import csv
+import time
+import datetime
+import gc
+from utils import load_model_and_config
+from utils import DataError
+
+# 测试模式设置（用于快速测试代码的健壮性）
+TEST_MODE = False  # 设置为True时只处理少量样本
+TEST_SAMPLES = 10  # 快速测试时处理的样本数量
+
+# 导入可视化工具和评估工具
+from visualization_utils import save_all_training_curves
+from evaluation_utils import validate_during_training
+
+from config import config
+from utils import setup_logging, get_device, create_model, create_optimizer, save_checkpoint
+from utils import create_scheduler, clean_gpu_memory, log_gpu_usage
+from utils import error_handler, timer, validate_params, TrainingError
+from data_utils.dataset import prepare_data_loaders
+
+
+@error_handler(error_type=TrainingError)
+@timer
+def train_model(model, train_loader, val_loader, optimizer, scheduler, 
+                epochs, early_stopping_patience, device, model_save_path, log_dir=None,
+                gradient_accumulation_steps=1, mixed_precision=False, mixed_precision_type="fp16", compile=False,
+                start_epoch=0, train_losses=None, val_losses=None, train_accuracies=None, val_accuracies=None):
+    
+    logger = logging.getLogger(__name__)
+    
+    # 1. 参数有效性验证
+    if not isinstance(model, torch.nn.Module):
+        raise ValueError("模型必须是torch.nn.Module的实例")
+    if not isinstance(epochs, int) or epochs <= 0:
+        raise ValueError("epochs必须是正整数")
+    if not isinstance(early_stopping_patience, int) or early_stopping_patience < 0:
+        raise ValueError("early_stopping_patience必须是非负整数")
+    if not isinstance(gradient_accumulation_steps, int) or gradient_accumulation_steps <= 0:
+        raise ValueError("gradient_accumulation_steps必须是正整数")
+    
+    # 2. 设备和资源检查
+    if not torch.cuda.is_available() and device.startswith('cuda'):
+        raise RuntimeError("CUDA不可用，但指定了CUDA设备")
+    
+    # 3. 数据加载器验证
+    if len(train_loader) == 0 or len(val_loader) == 0:
+        raise DataError("训练集或验证集为空")
+    
+    # 4. 文件系统权限检查
+    save_dir = os.path.dirname(model_save_path)
+    if not os.path.exists(save_dir):
+        try:
+            os.makedirs(save_dir, exist_ok=True)
+        except Exception as e:
+            raise RuntimeError(f"无法创建模型保存目录: {str(e)}")
+    
+    # 5. 验证训练历史的一致性
+    if start_epoch > 0:
+        history_lengths = [len(x) for x in [train_losses, val_losses, train_accuracies, val_accuracies] if x is not None]
+        if len(set(history_lengths)) > 1:
+            raise ValueError("训练历史记录长度不一致")
+        if any(len(x) != start_epoch for x in [train_losses, val_losses, train_accuracies, val_accuracies] if x is not None):
+            raise ValueError("训练历史记录长度与start_epoch不匹配")
+    
+    # 6. 混合精度训练参数验证
+    if mixed_precision:
+        if mixed_precision_type not in ["fp16", "bf16"]:
+            raise ValueError("mixed_precision_type必须是'fp16'或'bf16'之一")
+        if not torch.cuda.is_available():
+            raise RuntimeError("混合精度训练需要CUDA支持")
+    
+    # 7. 模型编译参数验证
+    if compile and not hasattr(torch, 'compile'):
+        logger.warning("当前PyTorch版本不支持模型编译，已忽略compile参数")
+        compile = False
+    
+    # 8. 验证模型权重的可用性
+    logger.info("验证模型权重的可用性...")
+    try:
+        # 保存初始模型
+        initial_save_path = f"{model_save_path}.initial_test"
+        torch.save({
+            'model_state_dict': model.state_dict(),
+            'label2id': getattr(model, 'label2id', None),
+            'id2label': getattr(model, 'id2label', None),
+            'config': {
+                'model_type': model.__class__.__name__,
+                'num_labels': len(getattr(model, 'label2id', {})),
+            }
+        }, initial_save_path)
+        
+        # 尝试加载模型
+        try:
+            test_checkpoint = torch.load(initial_save_path, map_location=device, weights_only=False)
+            # 验证权重是否完整
+            if 'model_state_dict' not in test_checkpoint:
+                raise ValueError("模型权重不完整")
+            if 'label2id' not in test_checkpoint or 'id2label' not in test_checkpoint:
+                raise ValueError("标签映射未保存")
+                
+            # 验证权重维度
+            for key, tensor in model.state_dict().items():
+                if key not in test_checkpoint['model_state_dict']:
+                    raise ValueError(f"缺少权重: {key}")
+                if test_checkpoint['model_state_dict'][key].shape != tensor.shape:
+                    raise ValueError(f"权重维度不匹配: {key}")
+            
+            # 验证标签映射一致性
+            if test_checkpoint['label2id'] != getattr(model, 'label2id', None) or test_checkpoint['id2label'] != getattr(model, 'id2label', None):
+                raise ValueError("标签映射不一致")
+            
+            # 尝试前向传播
+            model.eval()
+            with torch.no_grad():
+                batch = next(iter(val_loader))
+                inputs = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                         for k, v in batch.items() if k != 'labels'}
+                try:
+                    outputs = model(**inputs)
+                except Exception as e:
+                    raise RuntimeError(f"模型前向传播失败: {str(e)}")
+                
+                if not isinstance(outputs.logits, torch.Tensor):
+                    raise ValueError("模型输出格式不正确")
+                if outputs.logits.shape[1] != len(getattr(model, 'label2id', {})):
+                    raise ValueError(f"模型输出维度({outputs.logits.shape[1]})与类别数({len(getattr(model, 'label2id', {}))})不匹配")
+            
+            logger.info("模型权重验证通过")
+            
+        except Exception as e:
+            raise ValueError(f"模型加载验证失败: {str(e)}")
+        finally:
+            # 清理测试文件
+            if os.path.exists(initial_save_path):
+                os.remove(initial_save_path)
+                
+    except Exception as e:
+        error_msg = f"模型权重可用性验证失败: {str(e)}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+    
+    best_val_loss = float('inf')
+    epochs_no_improve = 0
+    
+    # 初始化训练历史记录
+    train_losses = train_losses or []
+    val_losses = val_losses or []
+    train_accuracies = train_accuracies or []
+    val_accuracies = val_accuracies or []
+    
+    # 获取并验证标签映射
+    label2id = getattr(model, 'label2id', None)
+    id2label = getattr(model, 'id2label', None)
+    if not label2id or not id2label:
+        logger.warning("模型中未找到标签映射，尝试从数据加载器获取")
+        label2id = getattr(train_loader.dataset, 'label2id', {})
+        id2label = getattr(train_loader.dataset, 'id2label', {})
+    
+    # 验证标签映射的完整性
+    if not label2id or not id2label or len(label2id) == 0 or len(id2label) == 0:
+        error_msg = "标签映射不完整或为空。训练无法继续。"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    
+    # 验证标签映射的一致性
+    if len(label2id) != len(id2label):
+        error_msg = f"标签映射不一致: label2id长度({len(label2id)}) != id2label长度({len(id2label)})"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    
+    # 验证标签映射的有效性
+    try:
+        for label, idx in label2id.items():
+            if str(idx) not in id2label and idx not in id2label:
+                error_msg = f"标签映射不一致: id {idx} 在id2label中未找到对应标签"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+            if id2label[str(idx) if str(idx) in id2label else idx] != label:
+                error_msg = f"标签映射不一致: 标签 {label} 的映射存在冲突"
+                logger.error(error_msg)
+                raise ValueError(error_msg)
+    except Exception as e:
+        error_msg = f"验证标签映射时出错: {str(e)}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+    
+    logger.info(f"标签映射验证通过，共 {len(label2id)} 个类别")
+    logger.debug(f"label2id: {label2id}")
+    logger.debug(f"id2label: {id2label}")
+    
+    # 记录训练配置
+    training_config = {
+        'learning_rate': optimizer.param_groups[0]['lr'],
+        'weight_decay': optimizer.param_groups[0]['weight_decay'],
+        'batch_size': train_loader.batch_size,
+        'gradient_accumulation_steps': gradient_accumulation_steps,
+        'mixed_precision': mixed_precision,
+        'mixed_precision_type': mixed_precision_type if mixed_precision else None,
+        'epochs': epochs,
+        'early_stopping_patience': early_stopping_patience,
+    }
+    
+    # 尝试保存初始检查点以验证保存功能
+    try:
+        logger.info("尝试保存初始检查点以验证保存功能...")
+        save_checkpoint(
+            ckpt_path=model_save_path + ".initial",
+            model=model,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            config=training_config,
+            label2id=label2id,
+            id2label=id2label,
+            epoch=start_epoch,
+            train_losses=[],
+            val_losses=[],
+            train_accuracies=[],
+            val_accuracies=[],
+        )
+        logger.info("初始检查点保存成功，删除临时文件...")
+        # 删除临时检查点
+        if os.path.exists(model_save_path + ".initial"):
+            os.remove(model_save_path + ".initial")
+    except Exception as e:
+        error_msg = f"保存初始检查点失败，训练无法继续: {str(e)}"
+        logger.error(error_msg)
+        raise RuntimeError(error_msg)
+    
+    # 混合精度训练设置
+    scaler = None
+    if mixed_precision:
+        try:
+            if mixed_precision_type == "fp16":
+                scaler = torch.amp.GradScaler(
+                    init_scale=2**10,
+                    growth_factor=1.5,
+                    backoff_factor=0.5,
+                    growth_interval=100,
+                    enabled=True
+                )
+                logger.info("创建保守配置的GradScaler")
+            else:
+                logger.info(f"启用{mixed_precision_type}混合精度训练 (不使用GradScaler)")
+        except Exception as e:
+            logger.error(f"创建GradScaler失败: {e}")
+            mixed_precision = False
+    
+    # 训练循环
+    for epoch in range(start_epoch, epochs):
+        # 1. 每个epoch开始时清理GPU内存
+        if device.type == 'cuda':
+            logger.info(f"Epoch {epoch + 1}/{epochs} 开始前清理GPU内存")
+            clean_gpu_memory()
+            log_gpu_usage(f"Epoch {epoch + 1} 开始前")
+            
+        model.train()
+        total_train_loss = 0
+        train_steps = 0
+        train_correct = 0
+        train_total = 0
+        skipped_batches = 0  # 统计跳过的批次数
+        
+        # 训练阶段
+        train_pbar = tqdm(train_loader, desc=f'Epoch {epoch + 1}/{epochs} [Train]')
+        for step, batch in enumerate(train_pbar):
+            try:
+                # 转移数据到设备
+                batch = {k: v.to(device) if isinstance(v, torch.Tensor) else v 
+                        for k, v in batch.items()}
+                
+                # 前向传播（使用混合精度）
+                with torch.cuda.amp.autocast() if mixed_precision else nullcontext():
+                    outputs = model(**batch)
+                    loss = outputs.loss
+                    logits = outputs.logits
+                    
+                    # 计算训练准确率
+                    preds = torch.argmax(logits, dim=1)
+                    train_correct += (preds == batch['labels']).sum().item()
+                    train_total += len(batch['labels'])
+                    
+                    # 梯度累积
+                    loss = loss / gradient_accumulation_steps
+            
+            # 2. 批次级别OOM处理
+            except torch.cuda.OutOfMemoryError as e:
+                skipped_batches += 1
+                
+                # 记录OOM错误
+                logger.warning(f"批次 {step} GPU内存不足: {str(e)}")
+                
+                # 显式清理当前批次的引用
+                for k in list(batch.keys()):
+                    if isinstance(batch[k], torch.Tensor):
+                        batch[k] = None
+                del batch
+                
+                # 如果创建了其他引用，清理它们
+                for var in ['outputs', 'loss', 'logits', 'preds']:
+                    if var in locals():
+                        locals()[var] = None
+                
+                # 执行垃圾回收和缓存清理
+                gc.collect()
+                if device.type == 'cuda':
+                    torch.cuda.empty_cache()
+                    clean_gpu_memory()
+                    
+                # 在进度条中显示跳过信息
+                train_pbar.set_postfix({**train_pbar.postfix, 'skipped': skipped_batches})
+                
+                # 继续处理下一个批次
+                continue
+            
+            # 反向传播
+            if mixed_precision and scaler:
+                optimizer.zero_grad()
+                scaler.scale(loss).backward()
+                if (step + 1) % gradient_accumulation_steps == 0:
+                    scaler.unscale_(optimizer)
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    scaler.step(optimizer)
+                    scaler.update()
+                    if scheduler:
+                        scheduler.step()
+                    
+            else:
+                optimizer.zero_grad()
+                loss.backward()
+                if (step + 1) % gradient_accumulation_steps == 0:
+                    torch.nn.utils.clip_grad_norm_(model.parameters(), 1.0)
+                    optimizer.step()
+                    if scheduler:
+                        scheduler.step()         
+            
+            # 更新统计
+            total_train_loss += loss.item() * gradient_accumulation_steps
+            train_steps += 1
+            
+            # 更新进度条
+            train_pbar.set_postfix({
+                'loss': total_train_loss / train_steps,
+                'acc': train_correct / train_total if train_total > 0 else 0,
+                'lr': optimizer.param_groups[0]['lr']
+            })
+        
+        # 计算训练epoch统计
+        epoch_train_loss = total_train_loss / train_steps if train_steps > 0 else float('inf')
+        epoch_train_acc = train_correct / train_total if train_total > 0 else 0
+        train_losses.append(epoch_train_loss)
+        train_accuracies.append(epoch_train_acc)
+        
+        # 记录跳过的批次信息
+        if skipped_batches > 0:
+            logger.warning(f"Epoch {epoch + 1} 共跳过了 {skipped_batches} 个批次 (约 {skipped_batches/len(train_loader)*100:.2f}%)")
+            log_gpu_usage(f"Epoch {epoch + 1} 完成后")
+        
+        # 验证阶段
+        model.eval()
+        validation_results = validate_during_training(model, val_loader, device, epoch)
+        val_loss = validation_results['loss']
+        val_acc = validation_results['accuracy']
+        val_losses.append(val_loss)
+        val_accuracies.append(val_acc)
+        
+        # 更新训练配置和指标
+        current_metrics = {
+            'best_val_loss': min(best_val_loss, val_loss),
+            'best_accuracy': max(val_accuracies),
+            'precision': validation_results['precision'],
+            'recall': validation_results['recall'],
+            'f1_score': validation_results['f1'],
+            'current_epoch': epoch + 1,
+            'total_epochs': epochs,
+        }
+        
+        # 记录验证指标到CSV文件
+        # 确定CSV文件路径
+        csv_file_path = None
+        if log_dir is not None:
+            csv_file_path = os.path.join(log_dir, "evaluation_metrics.csv")
+        else:
+            csv_file_path = os.path.join(os.path.dirname(model_save_path), "evaluation_metrics.csv")
+        
+        # 检查是否是第一次评估（CSV文件不存在）
+        is_first_evaluation = not os.path.exists(csv_file_path)
+        
+        # 准备CSV行数据
+        metrics_row = {
+            'epoch': epoch + 1,
+            'train_loss': epoch_train_loss,
+            'val_loss': val_loss,
+            'train_accuracy': epoch_train_acc,
+            'val_accuracy': val_acc,
+            'precision': validation_results['precision'],
+            'recall': validation_results['recall'],
+            'f1_score': validation_results['f1'],
+            'model_path': model_save_path if val_loss == best_val_loss else "",
+            'time': time.strftime('%Y-%m-%d %H:%M:%S')
+        }
+        
+        # 如果是第一次评估，创建CSV文件并写入列标题
+        if is_first_evaluation:
+            fieldnames = list(metrics_row.keys())
+            try:
+                with open(csv_file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    writer.writeheader()
+                    writer.writerow(metrics_row)
+                logger.info(f"创建评估指标CSV文件: {csv_file_path}")
+            except Exception as e:
+                logger.error(f"创建CSV文件失败: {str(e)}")
+        else:
+            # 读取已有的CSV数据
+            existing_rows = []
+            try:
+                with open(csv_file_path, 'r', encoding='utf-8') as csvfile:
+                    reader = csv.DictReader(csvfile)
+                    existing_rows = list(reader)
+            except Exception as e:
+                logger.error(f"读取现有CSV文件失败: {str(e)}")
+            
+            # 添加新行
+            existing_rows.append(metrics_row)
+            
+            # 重写CSV文件
+            try:
+                with open(csv_file_path, 'w', newline='', encoding='utf-8') as csvfile:
+                    fieldnames = list(metrics_row.keys())
+                    writer = csv.DictWriter(csvfile, fieldnames=fieldnames)
+                    writer.writeheader()
+                    for row in existing_rows:
+                        writer.writerow(row)
+                logger.info(f"更新评估指标CSV文件: {csv_file_path}")
+            except Exception as e:
+                logger.error(f"更新CSV文件失败: {str(e)}")
+        
+        
+        # 保存检查点
+        if val_loss < best_val_loss:
+            best_val_loss = val_loss
+            epochs_no_improve = 0
+            logger.info(f"发现更好的模型 (val_loss: {val_loss:.6f})，保存检查点...")
+            
+            # 保存完整的检查点
+            save_checkpoint(
+                ckpt_path=model_save_path,
+                model=model,
+                optimizer=optimizer,
+                scheduler=scheduler,
+                config=training_config,
+                label2id=label2id,
+                id2label=id2label,
+                epoch=epoch + 1,
+                train_losses=train_losses,
+                val_losses=val_losses,
+                train_accuracies=train_accuracies,
+                val_accuracies=val_accuracies,
+                extra={
+                    'best_val_loss': best_val_loss,
+                    'epochs_no_improve': epochs_no_improve,
+                    'precision': validation_results['precision'],
+                    'recall': validation_results['recall'],
+                    'f1_score': validation_results['f1'],
+                }
+            )
+        else:
+            epochs_no_improve += 1
+            
+        # 记录当前epoch的结果
+        logger.info(f"Epoch {epoch + 1}/{epochs}")
+        logger.info(f"Train Loss: {epoch_train_loss:.6f}, Accuracy: {epoch_train_acc:.4f}")
+        logger.info(f"Val Loss: {val_loss:.6f}, Accuracy: {val_acc:.4f}")
+        logger.info(f"Precision: {validation_results['precision']:.4f}")
+        logger.info(f"Recall: {validation_results['recall']:.4f}")
+        logger.info(f"F1 Score: {validation_results['f1']:.4f}")
+        
+        # 早停检查
+        if epochs_no_improve >= early_stopping_patience:
+            logger.info(f"Early stopping triggered after {epochs_no_improve} epochs without improvement")
+            break
+            
+        # 保存训练曲线
+        if log_dir:
+            save_all_training_curves(
+                train_losses=train_losses,
+                val_losses=val_losses,
+                train_accuracies=train_accuracies,
+                val_accuracies=val_accuracies,
+                log_dir=log_dir,
+                epoch_number=epoch + 1
+            )
+            
+    final_train_acc = train_accuracies[-1] if train_accuracies else 0.0
+    final_val_acc = val_accuracies[-1] if val_accuracies else 0.0
+    return train_losses, val_losses, train_accuracies, val_accuracies, final_train_acc, final_val_acc
+
+
+@error_handler(error_type=TrainingError)
+@validate_params(batch_size=int, epochs=int, learning_rate=float, window_size=int, 
+                num_repeats=int, max_windows=int)
+def train(train_loader, val_loader, device, train_dir, args, config, log_dir=None, num_classes=None, start_epoch=0, resume_checkpoint=None):
+    """
+    基于epoch的训练入口函数，被main.py调用
+    
+    Args:
+        train_loader (DataLoader): 训练数据加载器
+        val_loader (DataLoader): 验证数据加载器
+        device (torch.device): 计算设备
+        train_dir (str): 训练输出目录
+        args (argparse.Namespace): 命令行参数
+        config (dict): 配置字典
+    
+    Returns:
+        tuple: (train_losses, val_losses, train_accuracies, val_accuracies, final_train_acc, final_val_acc)
+    """
+    logger = logging.getLogger(__name__)
+    
+    # ========================
+    # 防御性检查与label2id一致性
+    # ========================
+    # 1. 获取label2id和num_classes
+    # 假设train_loader.dataset有label_encoder属性
+    label_encoder = None
+    label2id = None
+    id2label = None
+    if hasattr(train_loader, 'dataset') and hasattr(train_loader.dataset, 'label_encoder'):
+        label_encoder = train_loader.dataset.label_encoder
+        if hasattr(label_encoder, 'classes_'):
+            label2id = {label: idx for idx, label in enumerate(label_encoder.classes_)}
+            id2label = {idx: label for idx, label in enumerate(label_encoder.classes_)}
+    
+    # 优先从args或config获取num_classes
+    num_classes = getattr(args, 'num_classes', None)
+    if num_classes is None:
+        num_classes = config.get('num_classes', None)
+    if num_classes is None and label2id is not None:
+        num_classes = len(label2id)
+        args.num_classes = num_classes
+        config['num_classes'] = num_classes
+    
+    # 防御性检查：label2id和num_classes必须一致，否则报错并退出训练
+    if label2id is not None and num_classes is not None:
+        if len(label2id) != num_classes:
+            logger.error(f"label2id类别数({len(label2id)})与num_classes({num_classes})不一致，训练终止！")
+            raise TrainingError(f"label2id类别数({len(label2id)})与num_classes({num_classes})不一致，训练终止！")
+
+    # 只在label2id有效时才同步到config
+    if label2id is not None and len(label2id) == num_classes and num_classes > 0:
+        config['label2id'] = label2id
+        config['id2label'] = id2label
+    else:
+        logger.error(f"label2id无效（None/空/数量不符），训练终止，未保存到权重！")
+        raise TrainingError("label2id无效（None/空/数量不符），训练终止，未保存到权重！")
+    
+    # 1. 准备模型保存路径
+    model_save_path = os.path.join(train_dir, "model.pt")
+    
+    # 2. 获取或创建模型实例
+    try:
+        if args.resume_checkpoint and os.path.exists(args.resume_checkpoint):
+            logger.info(f"从检查点恢复: {args.resume_checkpoint}")
+            checkpoint = torch.load(args.resume_checkpoint, map_location=device, weights_only=False)
+            
+            # 验证检查点完整性
+            required_keys = ['model_state_dict', 'config', 'label2id', 'id2label']
+            missing_keys = [k for k in required_keys if k not in checkpoint]
+            if missing_keys:
+                raise TrainingError(f"检查点缺少必要组件: {', '.join(missing_keys)}")
+            
+            # 创建模型
+            model = create_model(
+                num_classes=len(checkpoint['label2id']),
+                window_size=config['window_size'],
+                num_repeats=config['num_repeats'],
+                max_windows=config['max_windows'],
+                pretrained_path=config['pretrained_path'],
+                device=device,
+                dropout=config.get('dropout', 0.1),
+                compile=getattr(args, 'compile', config.get('compile', False))
+            )
+            
+            # 加载模型权重
+            try:
+                model.load_state_dict(checkpoint['model_state_dict'])
+            except Exception as e:
+                raise TrainingError(f"加载模型权重失败: {str(e)}")
+            
+            # 设置标签映射
+            model.label2id = checkpoint['label2id']
+            model.id2label = checkpoint['id2label']
+            
+            # 恢复训练状态
+            start_epoch = checkpoint.get('epoch', 0)
+            train_losses = checkpoint.get('train_losses', [])
+            val_losses = checkpoint.get('val_losses', [])
+            train_accuracies = checkpoint.get('train_accuracies', [])
+            val_accuracies = checkpoint.get('val_accuracies', [])
+            best_val_loss = checkpoint.get('best_val_loss', float('inf'))
+            
+            # 创建优化器
+            optimizer = create_optimizer(
+                model=model,
+                learning_rate=args.learning_rate or config['learning_rate'],
+                weight_decay=config.get('weight_decay', 0.01)
+            )
+            
+            # 恢复优化器状态
+            if 'optimizer_state_dict' in checkpoint:
+                optimizer.load_state_dict(checkpoint['optimizer_state_dict'])
+            
+            # 创建调度器
+            # 自动推断训练步数
+            epochs = args.epochs if hasattr(args, 'epochs') and args.epochs is not None else config.get('epochs', 1)
+            num_training_steps = len(train_loader) * epochs
+            scheduler = create_scheduler(
+                optimizer=optimizer,
+                num_warmup_steps=config.get('num_warmup_steps', 0),
+                scheduler_type=config.get('scheduler_type', 'linear'),
+                num_training_steps=num_training_steps
+            )
+            
+            # 恢复调度器状态
+            if 'scheduler_state_dict' in checkpoint:
+                scheduler.load_state_dict(checkpoint['scheduler_state_dict'])
+            
+            logger.info(f"成功恢复训练状态: Epoch {start_epoch}, 最佳验证损失: {best_val_loss:.6f}")
+            
+        else:
+            # 创建新的模型和训练状态
+            model = create_model(
+                num_classes=args.num_classes,
+                window_size=config['window_size'],
+                num_repeats=config['num_repeats'],
+                max_windows=config['max_windows'],
+                pretrained_path=config['pretrained_path'],
+                device=device,
+                dropout=config.get('dropout', 0.1),
+                compile=getattr(args, 'compile', config.get('compile', False))
+            )
+            
+            # 创建优化器
+            optimizer = create_optimizer(
+                model=model,
+                learning_rate=args.learning_rate or config['learning_rate'],
+                weight_decay=config.get('weight_decay', 0.01)
+            )
+            
+            # 创建调度器
+            # 自动推断训练步数
+            epochs = args.epochs if hasattr(args, 'epochs') and args.epochs is not None else config.get('epochs', 1)
+            num_training_steps = len(train_loader) * epochs
+            scheduler = create_scheduler(
+                optimizer=optimizer,
+                num_warmup_steps=config.get('num_warmup_steps', 0),
+                scheduler_type=config.get('scheduler_type', 'linear'),
+                num_training_steps=num_training_steps
+            )
+            
+            # 初始化训练状态
+            start_epoch = args.start_epoch
+            train_losses = []
+            val_losses = []
+            train_accuracies = []
+            val_accuracies = []
+            best_val_loss = float('inf')
+        
+        # 3. 训练模型
+        logger.info("开始训练模型...")
+        train_results = train_model(
+            model=model,
+            train_loader=train_loader,
+            val_loader=val_loader,
+            optimizer=optimizer,
+            scheduler=scheduler,
+            epochs=args.epochs or config['epochs'],
+            early_stopping_patience=config['early_stopping_patience'],
+            device=device,
+            model_save_path=model_save_path,
+            log_dir=log_dir if log_dir is not None else train_dir,
+            gradient_accumulation_steps=args.gradient_accumulation_steps or config.get('gradient_accumulation_steps', 1),
+            mixed_precision=args.mixed_precision or config.get('mixed_precision', False),
+            mixed_precision_type=args.mixed_precision_type or config.get('mixed_precision_type', 'fp16'),
+            compile=args.compile or config.get('compile', False),
+            start_epoch=start_epoch,
+            train_losses=train_losses,
+            val_losses=val_losses,
+            train_accuracies=train_accuracies,
+            val_accuracies=val_accuracies
+        )
+        
+        return train_results
+        
+    except Exception as e:
+        logger.error(f"训练过程中发生错误: {str(e)}")
+        logger.error(traceback.format_exc())
+        if device.type == 'cuda':
+            clean_gpu_memory()
+        raise TrainingError(f"训练失败: {str(e)}")
+
+
+if __name__ == "__main__":
+    # 这是一个独立运行训练模块的示例
+    print("训练模块独立运行...")
+    # 示例：如需从权重恢复并获得标签映射
+    resume_checkpoint = None  # 可设置为权重路径
+    if resume_checkpoint:
+        model, ckpt_config, label2id, id2label = load_model_and_config(resume_checkpoint)
+        print(f"已从{resume_checkpoint}加载模型和标签映射")
+        print(f"label2id: {label2id}")
+        print(f"id2label: {id2label}")
+    else:
+        # 使用默认配置运行训练
+        train(
+            batch_size=config['batch_size'],
+            epochs=config['epochs'],
+            learning_rate=config['learning_rate'],
+            window_size=config['window_size'],
+            num_repeats=config['num_repeats'],
+            max_windows=config['max_windows']
+        )

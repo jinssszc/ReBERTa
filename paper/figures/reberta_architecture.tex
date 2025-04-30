@@ -1,0 +1,59 @@
+\documentclass{standalone}
+\usepackage{tikz}
+\usetikzlibrary{shapes,arrows,positioning,fit,backgrounds}
+
+\begin{document}
+\begin{tikzpicture}[
+    node distance=0.7cm and 1cm,
+    box/.style={rectangle, draw, rounded corners, fill=blue!20, minimum width=3cm, minimum height=1cm, text centered},
+    arrow/.style={thick,->,>=stealth},
+    largetext/.style={font=\large},
+    mediumtext/.style={font=\normalsize},
+    smalltext/.style={font=\small},
+    process/.style={rectangle, draw, fill=green!20, rounded corners, minimum width=3cm, minimum height=1cm, text centered}
+]
+
+% 输入层
+\node[box] (input) {长文本输入};
+
+% 窗口划分
+\node[process, below=of input] (windowing) {窗口划分 \& 预处理};
+
+% 窗口处理部分
+\node[box, below=of windowing] (window1) {窗口 1};
+\node[box, right=of window1] (window2) {窗口 2};
+\node[box, right=of window2] (window3) {窗口 ... N};
+
+% 窗口处理层标题
+\node[largetext, above=0.1cm of window1, xshift=2cm] {窗口处理层};
+\draw[dashed] ([xshift=-0.5cm, yshift=0.5cm]window1.north west) rectangle ([xshift=0.5cm, yshift=-0.5cm]window3.south east);
+
+% 窗口间信息传递
+\node[process, below=1.5cm of window2] (info_transfer) {窗口间门控信息传递};
+
+% 全局聚合层
+\node[box, below=of info_transfer] (global_aggregation) {全局聚合层};
+
+% 最终分类
+\node[box, below=of global_aggregation] (output) {分类输出};
+
+% 迭代回路
+\draw[arrow, dashed, thick, red] (global_aggregation) -- ++(3cm,0) |- ([yshift=0.3cm]window3.east);
+\node[smalltext, xshift=3.5cm, yshift=1.5cm] at (global_aggregation) {多轮迭代};
+
+% 连接
+\draw[arrow] (input) -- (windowing);
+\draw[arrow] (windowing) -- (window1);
+\draw[arrow] (windowing) -- (window2);
+\draw[arrow] (windowing) -- (window3);
+\draw[arrow] (window1) -- ([xshift=-1cm]info_transfer.north);
+\draw[arrow] (window2) -- (info_transfer);
+\draw[arrow] (window3) -- ([xshift=1cm]info_transfer.north);
+\draw[arrow] (info_transfer) -- (global_aggregation);
+\draw[arrow] (global_aggregation) -- (output);
+
+% RoPE标注
+\node[smalltext, rotate=90] at ([xshift=-0.5cm]window1.west) {旋转位置编码 (RoPE)};
+
+\end{tikzpicture}
+\end{document}

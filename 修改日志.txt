@@ -1,0 +1,4 @@
+#2025.4.29 修改：main.py 485行 合并 测试训练和训练+测试的逻辑，现在训练后直接测试
+        在reberta.py的outputs = checkpoint中新增了use_reentrant=False，这是用来控制检查点重计算的行为方式，适配pytorch2.5
+    仍然存在的问题：测试时使用的是本地的config文件里的参数而不是保存在model.pt里的config里的参数，但是因为训练和测试的模型相关的超参不能改变，所以也没出问题。也保存了训练时的config可以供后续查看手动更改。
+#2025.4.30 如果num_repeat = 3 则极致内存应该应用到6
